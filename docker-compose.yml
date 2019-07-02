@@ -1,0 +1,33 @@
+version: '3.7'
+
+services:
+
+  wfs-eye:
+    build: .
+    image: flaviostutz/wfs-tiler
+    ports: 
+      - 4000:4000
+    restart: always
+    environment:
+      - WFS3_API_URL=http://wfsgis:8080
+
+  wfsgis:
+    image: flaviostutz/wfsgis
+    ports: 
+      - 8080:8080
+    restart: always
+    environment:
+      - POSTGRES_HOST=postgis
+      - POSTGRES_USERNAME=admin
+      - POSTGRES_PASSWORD=admin
+      - POSTGRES_DBNAME=admin
+
+  postgis:
+    image: mdillon/postgis:11-alpine
+    ports:
+      - 5432:5432
+    environment:
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=admin
+      - POSTGRES_DB=admin
+
