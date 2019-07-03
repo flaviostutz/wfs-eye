@@ -11,7 +11,10 @@ import (
 func main() {
 	logLevel := flag.String("loglevel", "debug", "debug, info, warning, error")
 	wfsURL := flag.String("wfs-url", "", "WFS 3.0 server API URL from which to get features")
-	// cacheControl := flag.String("cache-control", "", "HTTP response Cache-Control header contents for all requests. If empty, no header is set.")
+	mongoDBName0 := flag.String("mongo-dbname", "", "Mongo db name")
+	mongoAddress0 := flag.String("mongo-address", "", "MongoDB address. Example: 'mongo', or 'mongdb://mongo1:1234/db1,mongo2:1234/db1")
+	mongoUsername0 := flag.String("mongo-username", "root", "MongoDB username")
+	mongoPassword0 := flag.String("mongo-password", "root", "MongoDB password")
 	flag.Parse()
 
 	switch *logLevel {
@@ -31,7 +34,16 @@ func main() {
 	logrus.Infof("====Starting WFS-EYE====")
 
 	opt := handlers.Options{
-		WFSURL: *wfsURL,
+		WFSURL:        *wfsURL,
+		MongoDBName:   *mongoDBName0,
+		MongoAddress:  *mongoAddress0,
+		MongoUsername: *mongoUsername0,
+		MongoPassword: *mongoPassword0,
+	}
+
+	if opt.MongoAddress == "" {
+		logrus.Errorf("'mongo-address' parameter is required")
+		os.Exit(1)
 	}
 
 	if opt.WFSURL == "" {

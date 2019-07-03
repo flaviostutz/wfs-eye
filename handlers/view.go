@@ -2,219 +2,219 @@ package handlers
 
 import (
 	"fmt"
+	"io/ioutil"
 	"net/http"
-	"os"
-	"strings"
 	"time"
 
 	"encoding/json"
 
-	"github.com/Sirupsen/logrus"
-	"github.com/gorilla/mux"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-	mgo "gopkg.in/mgo.v2"
+	"github.com/gin-gonic/gin"
+	"github.com/sirupsen/logrus"
 	"gopkg.in/mgo.v2/bson"
 )
 
 var (
-	mongoSession *mgo.Session
+	opt       Options
+	viewCache map[string]View
 )
 
-func (h *HTTPServer) setupViewHandlers(opt Options) {
-	h.router.POST("/views", createView(opt))
-	h.router.PUT("/views/:vname", updateView(opt))
-	h.router.GET("/views", listViews(opt))
-	h.router.GET("/views/:vname", getView(opt))
-	h.router.DELETE("/views/:vname", deleteView(opt))
+type View struct {
+	Name       *string            `json:"name,omitempty" bson:"name,omitempty"`
+	Collection string             `json:"collection,omitempty" bson:"collection,omitempty"`
+	StartTime  *time.Time         `json:"startTime,omitempty" bson:"startTime,omitempty"`
+	EndTime    *time.Time         `json:"endTime,omitempty" bson:"endTime,omitempty"`
+	Limit      *int               `json:"limit,omitempty" bson:"limit,omitempty"`
+	BBox       *[]float64         `json:"bbox,omitempty" bson:"bbox,omitempty"`
+	FilterAttr *map[string]string `json:"filterAttr,omitempty" bson:"filterAttr,omitempty"`
+	LastUpdate time.Time          `json:"lastUpdate,omitempty" bson:"lastUpdate,omitempty"`
 }
 
-func createView(opt Options) func(*gin.Context) {
+func (h *HTTPServer) setupViewHandlers(opt0 Options) {
+	opt = opt0
+	h.router.POST("/views", createView())
+	h.router.PUT("/views/:vname", updateView())
+	h.router.GET("/views", listViews())
+	h.router.GET("/views/:vname", getView())
+	h.router.DELETE("/views/:vname", deleteView())
+	viewCache = make(map[string]View)
+}
+
+func createView() func(*gin.Context) {
 	return func(c *gin.Context) {
 
-		decoder := json.NewDecoder(r.Body)
-		// schedule := make(map[string]interface{})
-		var schedule Schedule
-		err := decoder.Decode(&schedule)
+		var view View
+		data, _ := ioutil.ReadAll(c.Request.Body)
+		err := json.Unmarshal(data, &view)
 		if err != nil {
-			writeResponse(w, http.StatusBadRequest, fmt.Sprintf("Error handling post results. err=%s", err.Error()))
+			c.JSON(http.StatusBadRequest, gin.H{"message": fmt.Sprintf("Invalid post data. err=%s", err)})
 			return
 		}
-		if schedule.Name == "" {
-			writeResponse(w, http.StatusBadRequest, "'name' is required")
+		if view.Name == nil || *view.Name == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "'name' is required"})
 			return
 		}
-		if schedule.WorkflowName == "" {
-			writeResponse(w, http.StatusBadRequest, "'workflowName' is required")
-			return
-		}
-		if schedule.CronString == "" {
-			writeResponse(w, http.StatusBadRequest, "'cronString' is required")
-			return
-		}
-		if len(strings.Split(schedule.CronString, " ")) != 6 {
-			writeResponse(w, http.StatusBadRequest, "'cronString' is invalid. It must have 5 spaces")
-			return
-		}
-		if schedule.WorkflowVersion == "" {
-			schedule.WorkflowVersion = "1"
-		}
-		if !schedule.Enabled {
-			schedule.Enabled = true
-		}
-		if schedule.CheckWarningSeconds == 0 {
-			schedule.CheckWarningSeconds = 3600
-		}
-		schedule.LastUpdate = time.Now()
 
-		// _, err1 := getWorkflow(schedule.WorkflowName, schedule.WorkflowVersion)
-		// if err1 != nil {
-		// 	writeResponse(w, http.StatusBadRequest, fmt.Sprintf("Workflow '%s' %s doesn't exist in Conductor", schedule.WorkflowName, schedule.WorkflowVersion))
-		// 	return
-		// }
-		// logrus.Debugf("Workflow %s exists in Conductor", schedule.WorkflowName)
+		if view.Collection == nil || *view.Collection == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "'collection' is required"})
+			return
+		}
 
-		sc := mongoSession.Copy()
+		if name == view.Collection {
+			c.JSON(http.StatusBadRequest, gin.H{"message":fmt.Sprintf("View collection name cannot be the same as the view name")})
+			return
+		}
+		view.LastUpdate = time.Now()
+
+		sc := opt.MongoSession.Copy()
 		defer sc.Close()
-		st := sc.DB(dbName).C("schedules")
+		st := sc.DB(opt.MongoDBName).C("views")
 
-		//check duplicate schedule
-		c, err1 := st.Find(bson.M{"name": schedule.Name}).Count()
+		//check duplicate
+		count, err1 := st.Find(bson.M{"name": view.Name}).Count()
 		if err1 != nil {
-			writeResponse(w, http.StatusInternalServerError, "Error checking for existing schedule name")
-			logrus.Errorf("Error checking for existing schedule name. err=%s", err1)
+			c.JSON(http.StatusBadRequest, gin.H{"message": "Error checking for existing view name"})
+			logrus.Errorf("Error checking for existing view name. err=%s", err1)
 			return
 		}
-		if c > 0 {
-			writeResponse(w, http.StatusBadRequest, fmt.Sprintf("Duplicate schedule name '%s'", schedule.Name))
+		if count > 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "Duplicate view name"})
 			return
 		}
 
-		logrus.Debugf("Saving schedule %s for workflow %s", schedule.Name, schedule.WorkflowName)
-		logrus.Debugf("schedule: %v", schedule)
-		err0 := st.Insert(schedule)
+		logrus.Debugf("Creating view %s", view.Name)
+		err0 := st.Insert(view)
 		if err0 != nil {
-			writeResponse(w, http.StatusInternalServerError, "Error storing schedule.")
-			logrus.Errorf("Error storing schedule to Mongo. err=%s", err0)
+			c.JSON(http.StatusInternalServerError, "Error storing view")
+			logrus.Errorf("Error storing view to Mongo. err=%s", err0)
 			return
 		}
-		prepareTimers()
-		logrus.Debugf("Sending response")
-		w.Header().Set("Content-Type", "plain/text")
-		w.Header().Set("Cache-Control", "no-store")
-		w.WriteHeader(http.StatusCreated)
-
-		logrus.Debugf("createSchedule r=%v", r)
+		delete(viewCache, *view.Name)
+		c.JSON(http.StatusCreated, gin.H{"message": "View created successfuly"})
 	}
 }
 
-func updateView(opt Options) func(*gin.Context) {
+func updateView() func(*gin.Context) {
 	return func(c *gin.Context) {
 		logrus.Debugf("updateView")
-		name := mux.Vars(r)["name"]
+		name := c.Param("vname")
 
-		decoder := json.NewDecoder(r.Body)
-		schedule2 := make(map[string]interface{})
-		err := decoder.Decode(&schedule2)
+		var view View
+		data, _ := ioutil.ReadAll(c.Request.Body)
+		err := json.Unmarshal(data, &view)
 		if err != nil {
-			writeResponse(w, http.StatusBadRequest, fmt.Sprintf("Error updating schedule. err=%s", err.Error()))
+			c.JSON(http.StatusBadRequest, fmt.Sprintf("Error updating view. err=%s", err.Error()))
 			return
 		}
 
-		sc := mongoSession.Copy()
-		defer sc.Close()
-		st := sc.DB(dbName).C("schedules")
+		if view.Collection == nil || *view.Collection == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"message": "'collection' is required"})
+			return
+		}
 
-		logrus.Debugf("Updating schedule with %v", schedule2)
-		c, err1 := st.Find(bson.M{"name": name}).Count()
+		sc := opt.MongoSession.Copy()
+		defer sc.Close()
+		st := sc.DB(opt.MongoDBName).C("views")
+
+		view.Name = nil
+
+		if name == view.Collection {
+			c.JSON(http.StatusBadRequest, gin.H{"message":fmt.Sprintf("View collection name cannot be the same as the view name")})
+			return
+		}
+
+		logrus.Debugf("Updating view with %v", view)
+		count, err1 := st.Find(bson.M{"name": name}).Count()
 		if err1 != nil {
-			writeResponse(w, http.StatusInternalServerError, fmt.Sprintf("Error updating schedule"))
-			logrus.Errorf("Couldn't find schedule name %s. err=%s", name, err1)
+			c.JSON(http.StatusBadRequest, fmt.Sprintf("Error updating view. err=%s", err.Error()))
 			return
 		}
-		if c == 0 {
-			writeResponse(w, http.StatusNotFound, fmt.Sprintf("Couldn't find schedule %s", name))
+		if count == 0 {
+			c.JSON(http.StatusNotFound, fmt.Sprintf("Couldn't find view %s", name))
 			return
 		}
-		err = st.Update(bson.M{"name": name}, bson.M{"$set": schedule2})
+		view.LastUpdate = time.Now()
+		err = st.Update(bson.M{"name": name}, bson.M{"$set": view})
 		if err != nil {
-			writeResponse(w, http.StatusInternalServerError, "Error updating schedule")
-			logrus.Errorf("Error updating schedule %s. err=%s", name, err)
+			c.JSON(http.StatusInternalServerError, "Error updating view")
+			logrus.Errorf("Error updating view %s. err=%s", name, err)
 			return
 		}
-		prepareTimers()
-		writeResponse(w, http.StatusCreated, fmt.Sprintf("Schedule updated successfully"))
+		delete(viewCache, name)
+		c.JSON(http.StatusOK, gin.H{"message": "View updated successfully"})
 	}
 }
 
-func listViews(opt Options) func(*gin.Context) {
+func listViews() func(*gin.Context) {
 	return func(c *gin.Context) {
-		sc := mongoSession.Copy()
+		sc := opt.MongoSession.Copy()
 		defer sc.Close()
-		st := sc.DB(dbName).C("views")
+		st := sc.DB(opt.MongoDBName).C("views")
 
-		// var schedules []map[string]interface{}
-		schedules := make([]Schedule, 0)
-		err := st.Find(nil).All(&schedules)
+		views := make([]View, 0)
+		err := st.Find(nil).All(&views)
 		if err != nil {
-			writeResponse(w, http.StatusInternalServerError, fmt.Sprintf("Error listing schedules. err=%s", err.Error()))
+			c.JSON(http.StatusInternalServerError, fmt.Sprintf("Error listing schedules. err=%s", err.Error()))
 			return
 		}
-
-		w.Header().Set("Content-Type", "application/json")
-		logrus.Debugf("Schedules=%v", schedules)
-		b, err0 := json.Marshal(schedules)
-		if err0 != nil {
-			writeResponse(w, http.StatusInternalServerError, fmt.Sprintf("Error listing schedules. err=%s", err.Error()))
-			return
-		}
-		w.Write(b)
-		logrus.Debugf("result: %s", string(b))
+		c.JSON(http.StatusOK, views)
 	}
 }
 
-func getView(opt Options) func(*gin.Context) {
+func getView() func(*gin.Context) {
 	return func(c *gin.Context) {
-		logrus.Debugf("getSchedule r=%v", r)
-		name := mux.Vars(r)["name"]
+		logrus.Debugf("getView")
+		name := c.Param("vname")
 
-		sc := mongoSession.Copy()
+		sc := opt.MongoSession.Copy()
 		defer sc.Close()
-		st := sc.DB(dbName).C("schedules")
+		st := sc.DB(opt.MongoDBName).C("views")
 
-		// var schedule map[string]interface{}
-		var schedule Schedule
-		err := st.Find(bson.M{"name": name}).One(&schedule)
+		var view View
+		err := st.Find(bson.M{"name": name}).One(&view)
 		if err != nil {
-			writeResponse(w, http.StatusInternalServerError, fmt.Sprintf("Error getting schedule. err=%s", err.Error()))
+			c.JSON(http.StatusInternalServerError, fmt.Sprintf("Error getting view. err=%s", err.Error()))
 			return
 		}
 
-		w.Header().Set("Content-Type", "application/json")
-		b, err0 := json.Marshal(schedule)
-		if err0 != nil {
-			writeResponse(w, http.StatusInternalServerError, fmt.Sprintf("Error getting schedule. err=%s", err.Error()))
-			return
-		}
-		w.Write(b)
-		logrus.Debugf("result: %s", string(b))
-	}		
+		c.JSON(http.StatusOK, view)
+	}
 }
 
-func deleteView(opt Options) func(*gin.Context) {
+func findView(name string) (View, error) {
+	sc := opt.MongoSession.Copy()
+	defer sc.Close()
+	st := sc.DB(opt.MongoDBName).C("views")
+
+	//get view from cache
+	view, ok := viewCache[name]
+	if ok {
+		return view, nil
+	}
+
+	//not found in cache. fetch from Mongo
+	err := st.Find(bson.M{"name": name}).One(&view)
+	if err != nil {
+		return View{}, fmt.Errorf("View not found")
+	}
+	viewCache[name] = view
+	return view, nil
+}
+
+func deleteView() func(*gin.Context) {
 	return func(c *gin.Context) {
 		logrus.Debugf("deleteView")
-		name := mux.Vars(r)["name"]
+		name := c.Param("vname")
 
-		sc := mongoSession.Copy()
+		sc := opt.MongoSession.Copy()
 		defer sc.Close()
-		st := sc.DB(dbName).C("schedules")
+		st := sc.DB(opt.MongoDBName).C("views")
 
 		err := st.Remove(bson.M{"name": name})
 		if err != nil {
-			writeResponse(w, http.StatusInternalServerError, fmt.Sprintf("Error deleting schedule. err=%s", err.Error()))
+			c.JSON(http.StatusInternalServerError, fmt.Sprintf("Error deleting view. err=%s", err.Error()))
 			return
 		}
-		prepareTimers()
-		writeResponse(w, http.StatusOK, fmt.Sprintf("Deleted schedule successfully. name=%s", name))
+		delete(viewCache, name)
+		c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("Deleted view successfully. name=%s", name)})
 	}
 }
