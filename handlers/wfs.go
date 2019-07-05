@@ -50,7 +50,7 @@ func getFeatures(opt Options) func(*gin.Context) {
 		pc := make([]string, 0)
 		fc, err := resolveFeatureCollection(collection, bboxstr, limitstr, timestr, propertiesFilterStr, pc)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, fmt.Sprintf("Error getting collection features. err=%s", err))
+			c.JSON(http.StatusInternalServerError, gin.H{"message": fmt.Sprintf("Error getting collection features. err=%s", err)})
 			logrus.Warnf("Error getting collection features. err=%s", err)
 			return
 		}

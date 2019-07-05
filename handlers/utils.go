@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/paulsmith/gogeos/geos"
+	"github.com/sirupsen/logrus"
 )
 
 func containsString(s []string, e string) bool {
@@ -75,14 +76,22 @@ func intersectionBBoxStr(bboxstr1 string, bbox2 []float64) (bbox string, err err
 	coords1 = append(coords1, geos.Coord{X: bbox1[2], Y: bbox1[1]})
 	coords1 = append(coords1, geos.Coord{X: bbox1[2], Y: bbox1[3]})
 	coords1 = append(coords1, geos.Coord{X: bbox1[0], Y: bbox1[3]})
+	coords1 = append(coords1, geos.Coord{X: bbox1[0], Y: bbox1[1]})
 	bp1, err := geos.NewPolygon(coords1)
+	if err != nil {
+		return "", err
+	}
 
 	coords2 := make([]geos.Coord, 0)
 	coords2 = append(coords2, geos.Coord{X: bbox2[0], Y: bbox2[1]})
 	coords2 = append(coords2, geos.Coord{X: bbox2[2], Y: bbox2[1]})
 	coords2 = append(coords2, geos.Coord{X: bbox2[2], Y: bbox2[3]})
 	coords2 = append(coords2, geos.Coord{X: bbox2[0], Y: bbox2[3]})
+	coords2 = append(coords2, geos.Coord{X: bbox2[0], Y: bbox2[1]})
 	bp2, err := geos.NewPolygon(coords2)
+	if err != nil {
+		return "", err
+	}
 
 	rg, err := bp1.Intersection(bp2)
 	if err != nil {
@@ -98,6 +107,7 @@ func intersectionBBoxStr(bboxstr1 string, bbox2 []float64) (bbox string, err err
 	}
 
 	bboxstr3 := fmt.Sprintf("%f,%f,%f,%f", coords[0].X, coords[0].Y, coords[2].X, coords[2].Y)
+	logrus.Debugf("intersectionBBoxStr result=%s", bboxstr3)
 
 	return bboxstr3, nil
 }

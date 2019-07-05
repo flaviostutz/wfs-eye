@@ -94,7 +94,7 @@ curl -X GET \
     * Creates a new View
     * Body: json
         * "name": name of the view to be used as a "collection" name during WFS calls
-        * "collection": target collection name on WFS server that contains geometries
+        * "collection": target collection name on WFS server that contains geometries. If you use a name of another View in this field, it will be computed, layer by layer, until one is not a View, but a real collection. This way you can create various recurrent Views, one on top of another.
         * "defaultTime": if a "time" query param is not included in WFS query, add this value to upstream WFS
         * "maxTimeRange": the time param for upstream WFS won't be outside theses limits. If the query comes with a value outside this range, it will be clipped
         * "defaultLimit": if the "limit" query is not passed, use this value on upstream WFS
