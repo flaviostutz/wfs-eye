@@ -1,5 +1,7 @@
 FROM golang:1.12.3 AS BUILD
 
+RUN apt-get update && apt-get install -y libgeos-dev
+
 RUN mkdir /wfs-eye
 WORKDIR /wfs-eye
 
@@ -14,6 +16,8 @@ RUN go build -o /go/bin/wfs-eye
 
 
 FROM golang:1.12.3
+
+RUN apt-get update && apt-get install -y libgeos-dev
 
 ENV WFS3_API_URL ''
 ENV LOG_LEVEL 'info'

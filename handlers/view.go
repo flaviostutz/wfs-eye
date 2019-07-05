@@ -19,14 +19,16 @@ var (
 )
 
 type View struct {
-	Name       *string            `json:"name,omitempty" bson:"name,omitempty"`
-	Collection string             `json:"collection,omitempty" bson:"collection,omitempty"`
-	StartTime  *time.Time         `json:"startTime,omitempty" bson:"startTime,omitempty"`
-	EndTime    *time.Time         `json:"endTime,omitempty" bson:"endTime,omitempty"`
-	Limit      *int               `json:"limit,omitempty" bson:"limit,omitempty"`
-	BBox       *[]float64         `json:"bbox,omitempty" bson:"bbox,omitempty"`
-	FilterAttr *map[string]string `json:"filterAttr,omitempty" bson:"filterAttr,omitempty"`
-	LastUpdate time.Time          `json:"lastUpdate,omitempty" bson:"lastUpdate,omitempty"`
+	Name              *string            `json:"name,omitempty" bson:"name,omitempty"`
+	Collection        string             `json:"collection,omitempty" bson:"collection,omitempty"`
+	DefaultTime       *string            `json:"defaultTime,omitempty" bson:"defaultTime,omitempty"`
+	MaxTimeRange      *string            `json:"maxTimeRange,omitempty" bson:"maxTimeRange,omitempty"`
+	DefaultLimit      *int               `json:"defaultLimit,omitempty" bson:"defaultLimit,omitempty"`
+	MaxLimit          *int               `json:"maxLimit,omitempty" bson:"maxLimit,omitempty"`
+	DefaultBBox       *[]float64         `json:"defaultBbox,omitempty" bson:"defaultBbox,omitempty"`
+	MaxBBox           *[]float64         `json:"maxBbox,omitempty" bson:"maxBbox,omitempty"`
+	DefaultFilterAttr *map[string]string `json:"defaultFilterAttr,omitempty" bson:"defaultFilterAttr,omitempty"`
+	LastUpdate        time.Time          `json:"lastUpdate,omitempty" bson:"lastUpdate,omitempty"`
 }
 
 func (h *HTTPServer) setupViewHandlers(opt0 Options) {
@@ -54,15 +56,32 @@ func createView() func(*gin.Context) {
 			return
 		}
 
-		if view.Collection == nil || *view.Collection == "" {
+		if view.Collection == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"message": "'collection' is required"})
 			return
 		}
 
-		if name == view.Collection {
-			c.JSON(http.StatusBadRequest, gin.H{"message":fmt.Sprintf("View collection name cannot be the same as the view name")})
+		if *view.Name == view.Collection {
+			c.JSON(http.StatusBadRequest, gin.H{"message": fmt.Sprintf("View collection name cannot be the same as the view name")})
 			return
 		}
+
+		//VALIDATE DATES
+		if view.MaxTimeRange != nil {
+			a, b, err := getDateStartEndFromString(*view.MaxTimeRange)
+			if err != nil || (a == nil && b == nil) {
+				c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid 'maxTimeRange' date range. It must be something like '2019-01-01/2020-06-30', '2019-01-01/' or '/2020-06-30'"})
+				return
+			}
+		}
+		if view.DefaultTime != nil {
+			a, b, err := getDateStartEndFromString(*view.DefaultTime)
+			if err != nil || (a == nil && b == nil) {
+				c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid 'time' date. It must be something like '2019-01-01/2020-06-30', '2019-01-01/' or '/2020-06-30'"})
+				return
+			}
+		}
+
 		view.LastUpdate = time.Now()
 
 		sc := opt.MongoSession.Copy()
@@ -81,7 +100,7 @@ func createView() func(*gin.Context) {
 			return
 		}
 
-		logrus.Debugf("Creating view %s", view.Name)
+		logrus.Debugf("Creating view %s", *view.Name)
 		err0 := st.Insert(view)
 		if err0 != nil {
 			c.JSON(http.StatusInternalServerError, "Error storing view")
@@ -106,7 +125,7 @@ func updateView() func(*gin.Context) {
 			return
 		}
 
-		if view.Collection == nil || *view.Collection == "" {
+		if view.Collection == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"message": "'collection' is required"})
 			return
 		}
@@ -118,11 +137,27 @@ func updateView() func(*gin.Context) {
 		view.Name = nil
 
 		if name == view.Collection {
-			c.JSON(http.StatusBadRequest, gin.H{"message":fmt.Sprintf("View collection name cannot be the same as the view name")})
+			c.JSON(http.StatusBadRequest, gin.H{"message": fmt.Sprintf("View collection name cannot be the same as the view name")})
 			return
 		}
 
-		logrus.Debugf("Updating view with %v", view)
+		//VALIDATE DATES
+		if view.MaxTimeRange != nil {
+			a, b, err := getDateStartEndFromString(*view.MaxTimeRange)
+			if err != nil || (a == nil && b == nil) {
+				c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid 'maxTimeRange' date range. It must be something like '2019-01-01/2020-06-30', '2019-01-01/' or '/2020-06-30'"})
+				return
+			}
+		}
+		if view.DefaultTime != nil {
+			a, b, err := getDateStartEndFromString(*view.DefaultTime)
+			if err != nil || (a == nil && b == nil) {
+				c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid 'time' date. It must be something like '2019-01-01/2020-06-30', '2019-01-01/' or '/2020-06-30'"})
+				return
+			}
+		}
+
+		//CHECK IF VIEW EXISTS
 		count, err1 := st.Find(bson.M{"name": name}).Count()
 		if err1 != nil {
 			c.JSON(http.StatusBadRequest, fmt.Sprintf("Error updating view. err=%s", err.Error()))
@@ -132,7 +167,10 @@ func updateView() func(*gin.Context) {
 			c.JSON(http.StatusNotFound, fmt.Sprintf("Couldn't find view %s", name))
 			return
 		}
+
 		view.LastUpdate = time.Now()
+
+		logrus.Debugf("Updating view with %v", view)
 		err = st.Update(bson.M{"name": name}, bson.M{"$set": view})
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, "Error updating view")
