@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/paulsmith/gogeos/geos"
-	"github.com/sirupsen/logrus"
 )
 
 func containsString(s []string, e string) bool {
@@ -107,7 +106,6 @@ func intersectionBBoxStr(bboxstr1 string, bbox2 []float64) (bbox string, err err
 	}
 
 	bboxstr3 := fmt.Sprintf("%f,%f,%f,%f", coords[0].X, coords[0].Y, coords[2].X, coords[2].Y)
-	logrus.Debugf("intersectionBBoxStr result=%s", bboxstr3)
 
 	return bboxstr3, nil
 }
@@ -122,4 +120,8 @@ func bboxFromString(bboxstr string) ([]float64, error) {
 		return []float64{}, fmt.Errorf("Invalid numbers in bounding box")
 	}
 	return []float64{a, b, c, d}, nil
+}
+
+func validBBox(bbox []float64) bool {
+	return (bbox[0] < bbox[2]) && (bbox[3] < bbox[1])
 }

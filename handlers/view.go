@@ -14,8 +14,9 @@ import (
 )
 
 var (
-	opt       Options
-	viewCache map[string]View
+	opt               Options
+	viewCache         map[string]View
+	viewNotFoundCache map[string]bool
 )
 
 type View struct {
@@ -39,6 +40,7 @@ func (h *HTTPServer) setupViewHandlers(opt0 Options) {
 	h.router.GET("/views/:vname", getView())
 	h.router.DELETE("/views/:vname", deleteView())
 	viewCache = make(map[string]View)
+	viewNotFoundCache = make(map[string]bool)
 }
 
 func createView() func(*gin.Context) {
@@ -82,6 +84,20 @@ func createView() func(*gin.Context) {
 			}
 		}
 
+		//VALIDATE BBOX
+		if *view.DefaultBBox != nil {
+			if !validBBox(*view.DefaultBBox) {
+				c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid 'defaultBbox'. It must be in (north,west,east,south) order"})
+				return
+			}
+		}
+		if *view.MaxBBox != nil {
+			if !validBBox(*view.MaxBBox) {
+				c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid 'maxBbox'. It must be in (north,west,east,south) order"})
+				return
+			}
+		}
+
 		view.LastUpdate = time.Now()
 
 		sc := opt.MongoSession.Copy()
@@ -108,6 +124,7 @@ func createView() func(*gin.Context) {
 			return
 		}
 		delete(viewCache, *view.Name)
+		delete(viewNotFoundCache, *view.Name)
 		c.JSON(http.StatusCreated, gin.H{"message": "View created successfuly"})
 	}
 }
@@ -157,6 +174,20 @@ func updateView() func(*gin.Context) {
 			}
 		}
 
+		//VALIDATE BBOX
+		if *view.DefaultBBox != nil {
+			if !validBBox(*view.DefaultBBox) {
+				c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid 'defaultBbox'. It must be in (north,west,east,south) order"})
+				return
+			}
+		}
+		if *view.MaxBBox != nil {
+			if !validBBox(*view.MaxBBox) {
+				c.JSON(http.StatusBadRequest, gin.H{"message": "Invalid 'maxBbox'. It must be in (north,west,east,south) order"})
+				return
+			}
+		}
+
 		//CHECK IF VIEW EXISTS
 		count, err1 := st.Find(bson.M{"name": name}).Count()
 		if err1 != nil {
@@ -178,6 +209,7 @@ func updateView() func(*gin.Context) {
 			return
 		}
 		delete(viewCache, name)
+		delete(viewNotFoundCache, name)
 		c.JSON(http.StatusOK, gin.H{"message": "View updated successfully"})
 	}
 }
@@ -229,9 +261,18 @@ func findView(name string) (View, error) {
 		return view, nil
 	}
 
+	//get view not found in cache (do not query for known not found views)
+	_, notFound := viewNotFoundCache[name]
+	if notFound {
+		return View{}, fmt.Errorf("View not found")
+	}
+
 	//not found in cache. fetch from Mongo
 	err := st.Find(bson.M{"name": name}).One(&view)
 	if err != nil {
+		//warning: this cache has a potential risk of memory leak in case of hugh amounts of
+		//queries for views that are not found. limit cache size later
+		viewNotFoundCache[name] = true
 		return View{}, fmt.Errorf("View not found")
 	}
 	viewCache[name] = view
@@ -253,6 +294,7 @@ func deleteView() func(*gin.Context) {
 			return
 		}
 		delete(viewCache, name)
+		delete(viewNotFoundCache, name)
 		c.JSON(http.StatusOK, gin.H{"message": fmt.Sprintf("Deleted view successfully. name=%s", name)})
 	}
 }

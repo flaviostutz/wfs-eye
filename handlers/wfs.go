@@ -28,6 +28,17 @@ func getFeatures(opt Options) func(*gin.Context) {
 		if bboxstr != "" {
 			bboxstr = fmt.Sprintf("%s", bboxstr)
 		}
+		if bboxstr != "" {
+			bb, err := bboxFromString(bboxstr)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"message": fmt.Sprintf("Invalid 'bbox'. err=%s", err)})
+				return
+			}
+			if !validBBox(bb) {
+				c.JSON(http.StatusBadRequest, gin.H{"message": fmt.Sprintf("Invalid 'bbox'. It must be in order (west,north,east,south). err=%s", err)})
+				return
+			}
+		}
 
 		limitstr := c.Query("limit")
 		if limitstr != "" {
@@ -72,17 +83,19 @@ func resolveFeatureCollection(collectionName string, bboxstr string, limitstr st
 
 		//BBOX
 		bboxstr2 := bboxstr
-		if bboxstr != "" {
-			if view.MaxBBox != nil {
-				bboxstr2, err = intersectionBBoxStr(bboxstr, *view.MaxBBox)
-				if err != nil {
-					return nil, err
-				}
-			}
-		} else {
+		if bboxstr2 == "" {
 			if view.DefaultBBox != nil {
 				bb := *view.DefaultBBox
 				bboxstr2 = fmt.Sprintf("%f,%f,%f,%f", bb[0], bb[1], bb[2], bb[3])
+			}
+		}
+		if bboxstr2 != "" {
+			if view.MaxBBox != nil {
+				logrus.Debugf("intersectionBBoxStr %s %v", bboxstr2, *view.MaxBBox)
+				bboxstr2, err = intersectionBBoxStr(bboxstr2, *view.MaxBBox)
+				if err != nil {
+					return nil, err
+				}
 			}
 		}
 
@@ -104,6 +117,11 @@ func resolveFeatureCollection(collectionName string, bboxstr string, limitstr st
 		}
 
 		//TIME
+		if timestr == "" {
+			if view.DefaultTime != nil {
+				timestr = *view.DefaultTime
+			}
+		}
 		dateStart, dateEnd, err := getDateStartEndFromString(timestr)
 		if err != nil {
 			return nil, fmt.Errorf("Invalid date parameters. err=%s", err)
@@ -143,11 +161,6 @@ func resolveFeatureCollection(collectionName string, bboxstr string, limitstr st
 		timestr2 := ""
 		if sd != "" || ed != "" {
 			timestr2 = fmt.Sprintf("%s/%s", sd, ed)
-		}
-		if timestr2 == "" {
-			if view.DefaultTime != nil {
-				timestr2 = *view.DefaultTime
-			}
 		}
 
 		//FILTER ATTRIBUTES
