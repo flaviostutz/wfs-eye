@@ -1,6 +1,7 @@
 # wfs-eye
 
-[<img src="https://img.shields.io/docker/automated/flaviostutz/wfs-eye"/>](https://hub.docker.com/r/flaviostutz/wfs-eye)
+[<img src="https://img.shields.io/docker/automated/flaviostutz/wfs-eye"/>](https://hub.docker.com/r/flaviostutz/wfs-eye)<br/>
+[<img src="https://goreportcard.com/badge/github.com/flaviostutz/wfs-eye"/>](https://goreportcard.com/report/github.com/flaviostutz/wfs-eye)
 
 Create WFS collections that are based on pre defined WFS queries so that you can create "views" over complex WFS collections to easy data access.
 
