@@ -138,3 +138,6 @@ curl -X GET \
   * MONGO_USERNAME - mongo database username
   * MONGO_PASSWORD - mongo database password
 
+## Flow
+
+![WFSDiagram](WFSDiagram.png)
